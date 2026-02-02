@@ -306,9 +306,10 @@ const GAME_STATE = {
 };
 
 const ENEMY_TYPES = {
-    GOBLIN: { hp: 40, maxHp: 40, speed: 2, score: 10, width: 40, height: 60, color: '#558b2f' },
-    WOLF:   { hp: 25, maxHp: 25, speed: 6, score: 15, width: 60, height: 40, color: '#78909c' },
-    GOLEM:  { hp: 120, maxHp: 120, speed: 1.5, score: 30, width: 70, height: 90, color: '#5d4037' }
+    GOBLIN: { hp: 50, maxHp: 50, speed: 2, score: 10, width: 40, height: 60, color: '#558b2f' },
+    WOLF:   { hp: 35, maxHp: 35, speed: 6, score: 15, width: 60, height: 40, color: '#78909c' },
+    // GOLEM Buffed: HP 120 -> 250
+    GOLEM:  { hp: 250, maxHp: 250, speed: 1.5, score: 30, width: 70, height: 90, color: '#5d4037' }
 };
 
 /**
@@ -540,11 +541,12 @@ class Enemy extends Entity {
         this.attackCooldown = 0;
     }
 
-    spawn(typeKey) {
+    spawn(typeKey, difficultyMult) {
         const data = ENEMY_TYPES[typeKey];
         this.type = typeKey;
-        this.maxHp = data.maxHp;
-        this.hp = data.hp;
+        // HP scales with Difficulty
+        this.maxHp = Math.floor(data.maxHp * difficultyMult);
+        this.hp = this.maxHp;
         this.w = data.width;
         this.h = data.height;
         
@@ -602,6 +604,7 @@ class Game {
         
         this.essence = 0; // Money
         this.round = 1;
+        this.roundDifficulty = 1.0;
         this.enemiesRemainingToSpawn = 0;
         this.activeEnemiesCount = 0;
         this.gameState = GAME_STATE.MENU;
@@ -659,7 +662,10 @@ class Game {
 
     startNextRound() {
         this.round++;
-        this.enemiesRemainingToSpawn = 5 + (this.round * 2); // Difficulty scale
+        // Rounds get harder: 15% HP boost per round
+        this.roundDifficulty = 1.0 + ((this.round - 1) * 0.15);
+        // More enemies per round
+        this.enemiesRemainingToSpawn = 6 + Math.floor(this.round * 2.5);
         this.activeEnemiesCount = 0;
         this.spawnTimer = 0;
         this.enemies.forEach(e => e.active = false);
@@ -667,6 +673,9 @@ class Game {
         
         this.gameState = GAME_STATE.PLAYING;
         this.shopOverlay.classList.add('hidden');
+        
+        // Show Round Start Text
+        this.spawnFloatingText(`ROUND ${this.round}`, CONFIG.WIDTH/2, CONFIG.HEIGHT/2, '#f1c40f');
     }
 
     openShop() {
@@ -724,10 +733,10 @@ class Game {
         let type;
         // Difficulty logic
         if (this.round < 2) type = 'GOBLIN';
-        else if (this.round < 4) type = Math.random() > 0.7 ? 'WOLF' : 'GOBLIN';
+        else if (this.round < 3) type = Math.random() > 0.7 ? 'WOLF' : 'GOBLIN';
         else type = keys[Math.floor(Math.random() * keys.length)];
         
-        inactive.spawn(type);
+        inactive.spawn(type, this.roundDifficulty);
         this.enemiesRemainingToSpawn--;
         this.activeEnemiesCount++;
     }
@@ -788,10 +797,13 @@ class Game {
         this.enemies.forEach(e => {
             if (e.active && e.state === STATE.ATTACK_L && e.timer === 15) {
                 if (Math.abs(e.x - this.player.x) < (e.w + 30)) {
-                    const res = this.player.takeDamage(10);
+                    // Enemy Damage scales with round
+                    let enemyDmg = 10 + Math.floor(this.round * 1.5);
+                    
+                    const res = this.player.takeDamage(enemyDmg);
                     if (res === 'hit') {
                         this.shake = 15;
-                        this.spawnFloatingText("-10", this.player.x, this.player.y - 80, '#e74c3c');
+                        this.spawnFloatingText(`-${enemyDmg}`, this.player.x, this.player.y - 80, '#e74c3c');
                         for(let i=0; i<8; i++) this.spawnParticle(this.player.x, this.player.y - 40, 'hit', '#e74c3c');
                     } else if (res === 'blocked') {
                         this.spawnFloatingText("BLOCK", this.player.x, this.player.y - 80, '#aaa');
@@ -819,9 +831,10 @@ class Game {
             this.leafTimer = 0;
         }
 
-        // Spawning Logic
+        // Spawning Logic (Faster spawns in later rounds)
         this.spawnTimer++;
-        if (this.spawnTimer > 60 && this.enemiesRemainingToSpawn > 0 && this.activeEnemiesCount < 4) {
+        let spawnRate = Math.max(30, 70 - (this.round * 2));
+        if (this.spawnTimer > spawnRate && this.enemiesRemainingToSpawn > 0 && this.activeEnemiesCount < (4 + this.round)) {
             this.spawnEnemy();
             this.spawnTimer = 0;
         }
